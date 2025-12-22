@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -13,18 +13,23 @@ import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import { CalendarIcon, Upload } from 'lucide-react';
-import { format, differenceInDays } from 'date-fns';
+import { CalendarIcon, Upload, Sun, Moon, Calendar as CalendarIconFull } from 'lucide-react';
+import { format, differenceInDays, addDays, eachDayOfInterval } from 'date-fns';
+
+type DateDayType = 'full' | 'first_half' | 'second_half';
+
+interface DateBreakdown {
+  date: Date;
+  dayType: DateDayType;
+}
 
 const leaveFormSchema = z.object({
   leaveType: z.enum(['casual', 'sick', 'earned', 'wfh', 'comp_off']),
   startDate: z.date({ required_error: 'Start date is required' }),
   endDate: z.date({ required_error: 'End date is required' }),
-  dayType: z.enum(['full', 'first_half', 'second_half']),
   reason: z.string().min(10, 'Please provide a reason (min 10 characters)').max(500),
 }).refine(data => data.endDate >= data.startDate, {
   message: 'End date must be on or after start date',
@@ -41,30 +46,53 @@ export const LeaveApplicationForm: React.FC<LeaveApplicationFormProps> = ({ onSu
   const { user } = useAuth();
   const { applyLeave, leaveBalance } = useLeave();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [dateBreakdown, setDateBreakdown] = useState<DateBreakdown[]>([]);
 
   const form = useForm<LeaveFormData>({
     resolver: zodResolver(leaveFormSchema),
     defaultValues: {
       leaveType: 'casual',
-      dayType: 'full',
       reason: '',
     },
   });
 
-  const watchedDates = form.watch(['startDate', 'endDate', 'dayType']);
-  const calculateDays = () => {
-    const [startDate, endDate, dayType] = watchedDates;
-    if (!startDate || !endDate) return 0;
-    const days = differenceInDays(endDate, startDate) + 1;
-    return dayType === 'full' ? days : days * 0.5;
+  const startDate = form.watch('startDate');
+  const endDate = form.watch('endDate');
+
+  // Generate date breakdown when dates change
+  useMemo(() => {
+    if (startDate && endDate && endDate >= startDate) {
+      const dates = eachDayOfInterval({ start: startDate, end: endDate });
+      const newBreakdown = dates.map(date => ({
+        date,
+        dayType: 'full' as DateDayType,
+      }));
+      setDateBreakdown(newBreakdown);
+    } else {
+      setDateBreakdown([]);
+    }
+  }, [startDate, endDate]);
+
+  const updateDateType = (index: number, dayType: DateDayType) => {
+    setDateBreakdown(prev => 
+      prev.map((item, i) => i === index ? { ...item, dayType } : item)
+    );
   };
+
+  const calculateTotalDays = useMemo(() => {
+    return dateBreakdown.reduce((total, item) => {
+      return total + (item.dayType === 'full' ? 1 : 0.5);
+    }, 0);
+  }, [dateBreakdown]);
 
   const onSubmit = async (data: LeaveFormData) => {
     if (!user) return;
     
     setIsSubmitting(true);
     try {
-      const daysCount = calculateDays();
+      // Determine overall dayType based on breakdown
+      const hasHalfDays = dateBreakdown.some(d => d.dayType !== 'full');
+      const overallDayType: DayType = hasHalfDays ? 'first_half' : 'full'; // Simplified for API
       
       applyLeave({
         employeeId: user.id,
@@ -73,17 +101,18 @@ export const LeaveApplicationForm: React.FC<LeaveApplicationFormProps> = ({ onSu
         leaveType: data.leaveType as LeaveType,
         startDate: format(data.startDate, 'yyyy-MM-dd'),
         endDate: format(data.endDate, 'yyyy-MM-dd'),
-        dayType: data.dayType as DayType,
+        dayType: overallDayType,
         reason: data.reason,
-        daysCount,
+        daysCount: calculateTotalDays,
       });
 
       toast({
         title: 'Leave Applied',
-        description: `Your leave request for ${daysCount} day(s) has been submitted for approval.`,
+        description: `Your leave request for ${calculateTotalDays} day(s) has been submitted for approval.`,
       });
 
       form.reset();
+      setDateBreakdown([]);
       onSuccess?.();
     } catch (error) {
       toast({
@@ -166,6 +195,7 @@ export const LeaveApplicationForm: React.FC<LeaveApplicationFormProps> = ({ onSu
                           onSelect={field.onChange}
                           disabled={(date) => date < new Date()}
                           initialFocus
+                          className="pointer-events-auto"
                         />
                       </PopoverContent>
                     </Popover>
@@ -202,6 +232,7 @@ export const LeaveApplicationForm: React.FC<LeaveApplicationFormProps> = ({ onSu
                           onSelect={field.onChange}
                           disabled={(date) => date < new Date() || (form.getValues('startDate') && date < form.getValues('startDate'))}
                           initialFocus
+                          className="pointer-events-auto"
                         />
                       </PopoverContent>
                     </Popover>
@@ -211,44 +242,101 @@ export const LeaveApplicationForm: React.FC<LeaveApplicationFormProps> = ({ onSu
               />
             </div>
 
-            {/* Day Type */}
-            <FormField
-              control={form.control}
-              name="dayType"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Duration Type</FormLabel>
-                  <FormControl>
-                    <RadioGroup
-                      onValueChange={field.onChange}
-                      defaultValue={field.value}
-                      className="flex flex-wrap gap-4"
-                    >
-                      <div className="flex items-center space-x-2">
-                        <RadioGroupItem value="full" id="full" />
-                        <Label htmlFor="full">Full Day</Label>
+            {/* Date Breakdown */}
+            {dateBreakdown.length > 0 && (
+              <div className="space-y-3">
+                <Label className="text-sm font-medium">Day-wise Selection</Label>
+                <div className="border border-border rounded-lg overflow-hidden">
+                  <div className="bg-muted px-4 py-2 grid grid-cols-4 gap-2 text-xs font-medium text-muted-foreground">
+                    <span>Date</span>
+                    <span className="text-center">Full Day</span>
+                    <span className="text-center">First Half</span>
+                    <span className="text-center">Second Half</span>
+                  </div>
+                  <div className="divide-y divide-border max-h-64 overflow-y-auto">
+                    {dateBreakdown.map((item, index) => (
+                      <div 
+                        key={item.date.toISOString()} 
+                        className="px-4 py-3 grid grid-cols-4 gap-2 items-center hover:bg-accent/50 transition-colors"
+                      >
+                        <div className="flex items-center gap-2">
+                          <CalendarIconFull className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm font-medium">
+                            {format(item.date, 'EEE, MMM d')}
+                          </span>
+                        </div>
+                        <div className="flex justify-center">
+                          <button
+                            type="button"
+                            onClick={() => updateDateType(index, 'full')}
+                            className={cn(
+                              "w-8 h-8 rounded-full flex items-center justify-center transition-all",
+                              item.dayType === 'full' 
+                                ? "bg-primary text-primary-foreground shadow-md" 
+                                : "bg-muted hover:bg-muted/80 text-muted-foreground"
+                            )}
+                            title="Full Day"
+                          >
+                            <div className="w-3 h-3 rounded-full bg-current" />
+                          </button>
+                        </div>
+                        <div className="flex justify-center">
+                          <button
+                            type="button"
+                            onClick={() => updateDateType(index, 'first_half')}
+                            className={cn(
+                              "w-8 h-8 rounded-full flex items-center justify-center transition-all",
+                              item.dayType === 'first_half' 
+                                ? "bg-primary text-primary-foreground shadow-md" 
+                                : "bg-muted hover:bg-muted/80 text-muted-foreground"
+                            )}
+                            title="First Half (Morning)"
+                          >
+                            <Sun className="w-4 h-4" />
+                          </button>
+                        </div>
+                        <div className="flex justify-center">
+                          <button
+                            type="button"
+                            onClick={() => updateDateType(index, 'second_half')}
+                            className={cn(
+                              "w-8 h-8 rounded-full flex items-center justify-center transition-all",
+                              item.dayType === 'second_half' 
+                                ? "bg-primary text-primary-foreground shadow-md" 
+                                : "bg-muted hover:bg-muted/80 text-muted-foreground"
+                            )}
+                            title="Second Half (Afternoon)"
+                          >
+                            <Moon className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex items-center space-x-2">
-                        <RadioGroupItem value="first_half" id="first_half" />
-                        <Label htmlFor="first_half">First Half</Label>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <RadioGroupItem value="second_half" id="second_half" />
-                        <Label htmlFor="second_half">Second Half</Label>
-                      </div>
-                    </RadioGroup>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Days Summary */}
-            {calculateDays() > 0 && (
-              <div className="p-4 bg-accent rounded-lg">
+            {calculateTotalDays > 0 && (
+              <div className="p-4 bg-accent rounded-lg flex items-center justify-between">
                 <p className="text-sm font-medium">
-                  Total Leave Days: <span className="text-primary font-bold">{calculateDays()}</span>
+                  Total Leave Days: <span className="text-primary font-bold text-lg">{calculateTotalDays}</span>
                 </p>
+                <div className="flex gap-4 text-xs text-muted-foreground">
+                  <span className="flex items-center gap-1">
+                    <div className="w-2.5 h-2.5 rounded-full bg-primary" />
+                    Full: {dateBreakdown.filter(d => d.dayType === 'full').length}
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <Sun className="w-3 h-3" />
+                    First: {dateBreakdown.filter(d => d.dayType === 'first_half').length}
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <Moon className="w-3 h-3" />
+                    Second: {dateBreakdown.filter(d => d.dayType === 'second_half').length}
+                  </span>
+                </div>
               </div>
             )}
 
@@ -292,7 +380,7 @@ export const LeaveApplicationForm: React.FC<LeaveApplicationFormProps> = ({ onSu
               <Button type="submit" className="flex-1" disabled={isSubmitting}>
                 {isSubmitting ? 'Submitting...' : 'Submit Leave Request'}
               </Button>
-              <Button type="button" variant="outline" onClick={() => form.reset()}>
+              <Button type="button" variant="outline" onClick={() => { form.reset(); setDateBreakdown([]); }}>
                 Reset
               </Button>
             </div>
