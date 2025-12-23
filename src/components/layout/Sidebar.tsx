@@ -83,11 +83,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed = false, onToggle })
       case 'hr_admin':
         return [
           ...baseItems,
-          { to: '/employees', icon: Users, label: 'Employees' },
+          { to: '/employees', icon: Users, label: 'Employees', divider: true },
           { to: '/policies', icon: FileText, label: 'Leave Policies' },
           { to: '/holidays', icon: Calendar, label: 'Holidays' },
+          { to: '/adjustments', icon: Building2, label: 'Leave Adjustments', divider: true },
           { to: '/reports', icon: FileText, label: 'Reports' },
-          { to: '/settings', icon: UserCog, label: 'Settings' },
+          { to: '/audit-logs', icon: UserCog, label: 'Audit Logs' },
         ];
       default:
         return baseItems;

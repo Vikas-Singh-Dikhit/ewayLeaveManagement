@@ -10,12 +10,18 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ROLE_LABELS } from '@/types/leave';
 import { Link } from 'react-router-dom';
 import { CalendarPlus, Clock, CheckCircle, XCircle, Users, FileText, TrendingUp } from 'lucide-react';
+import HRAdminDashboard from './HRAdminDashboard';
 
 const Dashboard: React.FC = () => {
   const { user } = useAuth();
   const { leaveRequests, leaveBalance, getPendingCount } = useLeave();
 
   if (!user) return null;
+
+  // HR/Admin gets their own dashboard
+  if (user.role === 'hr_admin') {
+    return <HRAdminDashboard />;
+  }
 
   const myRequests = leaveRequests.filter(r => r.employeeId === user.id);
   const pendingRequests = myRequests.filter(r => r.status === 'pending');
@@ -89,42 +95,6 @@ const Dashboard: React.FC = () => {
     );
   };
 
-  const renderHRDashboard = () => (
-    <>
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-        <StatsCard title="Total Employees" value={156} icon={Users} variant="primary" />
-        <StatsCard title="On Leave Today" value={8} icon={Clock} variant="warning" />
-        <StatsCard title="Pending Requests" value={12} icon={FileText} />
-        <StatsCard title="Avg. Days/Employee" value={4.2} icon={TrendingUp} variant="success" />
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Quick Actions</CardTitle>
-          </CardHeader>
-          <CardContent className="grid grid-cols-2 gap-3">
-            <Link to="/employees"><Button variant="outline" className="w-full">Manage Employees</Button></Link>
-            <Link to="/policies"><Button variant="outline" className="w-full">Leave Policies</Button></Link>
-            <Link to="/holidays"><Button variant="outline" className="w-full">Holiday Calendar</Button></Link>
-            <Link to="/reports"><Button variant="outline" className="w-full">Generate Reports</Button></Link>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Recent Activity</CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground space-y-3">
-            <p>• John Smith applied for 2 days casual leave</p>
-            <p>• Alice Cooper's leave was approved by Director</p>
-            <p>• New employee David Lee added to Engineering</p>
-            <p>• Holiday policy updated for Q1 2025</p>
-          </CardContent>
-        </Card>
-      </div>
-    </>
-  );
-
   return (
     <div className="animate-fade-in">
       <PageHeader
@@ -134,7 +104,6 @@ const Dashboard: React.FC = () => {
 
       {user.role === 'employee' && renderEmployeeDashboard()}
       {['team_lead', 'manager', 'director'].includes(user.role) && renderApproverDashboard()}
-      {user.role === 'hr_admin' && renderHRDashboard()}
     </div>
   );
 };

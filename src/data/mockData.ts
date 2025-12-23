@@ -1,4 +1,4 @@
-import { User, LeaveRequest, LeaveBalance, Employee, Holiday, LeavePolicy } from '@/types/leave';
+import { User, LeaveRequest, LeaveBalance, Employee, Holiday, LeavePolicy, AuditLog, LeaveAdjustment, EmployeeHistory, PolicyChangeLog, LeaveYearConfig } from '@/types/leave';
 
 export const mockUsers: User[] = [
   { id: '1', name: 'John Smith', email: 'john@company.com', role: 'employee', department: 'Engineering', teamId: 'team-1' },
@@ -140,3 +140,29 @@ export const mockLeavePolicies: LeavePolicy[] = [
   { id: 'p-4', leaveType: 'wfh', name: 'Work From Home', annualQuota: 24, carryForward: false, maxCarryForward: 0, description: 'Remote work days' },
   { id: 'p-5', leaveType: 'comp_off', name: 'Compensatory Off', annualQuota: 0, carryForward: false, maxCarryForward: 0, description: 'Earned for working on holidays/weekends' },
 ];
+
+export const mockLeaveAdjustments: LeaveAdjustment[] = [
+  { id: 'adj-1', employeeId: '1', employeeName: 'John Smith', leaveType: 'casual', days: 2, reason: 'Bonus casual leave for excellent performance', adjustedBy: '5', adjustedByName: 'Admin User', timestamp: '2024-12-15T10:00:00', oldBalance: 8, newBalance: 10 },
+  { id: 'adj-2', employeeId: '6', employeeName: 'Alice Cooper', leaveType: 'sick', days: -1, reason: 'Correction for double counting in sick leave', adjustedBy: '5', adjustedByName: 'Admin User', timestamp: '2024-12-14T14:30:00', oldBalance: 9, newBalance: 8 },
+];
+
+export const mockAuditLogs: AuditLog[] = [
+  { id: 'audit-1', action: 'approve', entityType: 'leave_request', entityId: 'lr-2', entityDetails: 'Leave Request approved', performedBy: '2', performedByName: 'Sarah Johnson', timestamp: '2024-12-08T10:30:00' },
+  { id: 'audit-2', action: 'approve', entityType: 'leave_request', entityId: 'lr-2', entityDetails: 'Leave Request approved', performedBy: '3', performedByName: 'Michael Brown', timestamp: '2024-12-08T14:00:00' },
+  { id: 'audit-3', action: 'adjustment', entityType: 'adjustment', entityId: 'adj-1', entityDetails: 'Leave adjustment: +2 casual leave', performedBy: '5', performedByName: 'Admin User', timestamp: '2024-12-15T10:00:00', newValue: { days: 2, reason: 'Bonus casual leave for excellent performance' } },
+  { id: 'audit-4', action: 'employee_change', entityType: 'employee', entityId: '1', entityDetails: 'Employee role updated', performedBy: '5', performedByName: 'Admin User', timestamp: '2024-12-10T11:00:00', oldValue: { role: 'employee' }, newValue: { role: 'employee' } },
+];
+
+export const mockEmployeeHistory: EmployeeHistory[] = [
+  { id: 'eh-1', employeeId: '2', fieldChanged: 'role', oldValue: 'employee', newValue: 'team_lead', changedBy: '5', changedByName: 'Admin User', timestamp: '2024-06-15T09:00:00', reason: 'Promoted based on performance' },
+  { id: 'eh-2', employeeId: '3', fieldChanged: 'role', oldValue: 'team_lead', newValue: 'manager', changedBy: '5', changedByName: 'Admin User', timestamp: '2024-03-01T10:00:00', reason: 'Promoted to Manager' },
+];
+
+export const mockLeaveYearConfig: LeaveYearConfig = {
+  id: 'config-1',
+  year: 2025,
+  startDate: '2025-01-01',
+  endDate: '2025-12-31',
+  yearType: 'calendar',
+  isActive: true,
+};

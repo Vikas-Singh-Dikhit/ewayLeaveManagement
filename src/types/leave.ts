@@ -99,6 +99,67 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   hr_admin: 'HR Admin',
 };
 
+// HR/Admin specific types
+export interface EmployeeHistory {
+  id: string;
+  employeeId: string;
+  fieldChanged: 'role' | 'status' | 'manager' | 'department' | 'teamId';
+  oldValue: string;
+  newValue: string;
+  changedBy: string;
+  changedByName: string;
+  timestamp: string;
+  reason?: string;
+}
+
+export interface LeaveAdjustment {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  leaveType: LeaveType;
+  days: number; // positive for credit, negative for debit
+  reason: string;
+  adjustedBy: string;
+  adjustedByName: string;
+  timestamp: string;
+  oldBalance: number;
+  newBalance: number;
+}
+
+export interface AuditLog {
+  id: string;
+  action: 'approve' | 'reject' | 'adjustment' | 'employee_change' | 'policy_change' | 'holiday_change' | 'leave_cancel';
+  entityType: 'leave_request' | 'employee' | 'policy' | 'holiday' | 'adjustment';
+  entityId: string;
+  entityDetails: string;
+  oldValue?: Record<string, any>;
+  newValue?: Record<string, any>;
+  performedBy: string;
+  performedByName: string;
+  timestamp: string;
+  ipAddress?: string;
+}
+
+export interface PolicyChangeLog {
+  id: string;
+  policyId: string;
+  leaveType: LeaveType;
+  changes: Record<string, any>;
+  changedBy: string;
+  changedByName: string;
+  timestamp: string;
+  effectiveFrom: string;
+}
+
+export interface LeaveYearConfig {
+  id: string;
+  year: number;
+  startDate: string; // Calendar or Financial year start
+  endDate: string;
+  yearType: 'calendar' | 'financial'; // Calendar (Jan-Dec) or Financial (Apr-Mar)
+  isActive: boolean;
+}
+
 export const STATUS_LABELS: Record<LeaveStatus, string> = {
   pending: 'Pending',
   approved: 'Approved',
