@@ -81,6 +81,47 @@ export interface Employee {
   joinDate: string;
   status: 'active' | 'inactive';
   leaveBalance: LeaveBalance;
+  managerId?: string;
+  teamLeadId?: string;
+}
+
+export interface LeaveAdjustment {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  leaveType: LeaveType;
+  adjustmentType: 'credit' | 'debit';
+  days: number;
+  reason: string;
+  adjustedBy: string;
+  adjustedByName: string;
+  timestamp: string;
+  previousBalance: number;
+  newBalance: number;
+}
+
+export interface AuditLog {
+  id: string;
+  action: 'approval' | 'rejection' | 'balance_change' | 'employee_update' | 'policy_update' | 'holiday_update' | 'adjustment';
+  entityType: 'leave_request' | 'employee' | 'policy' | 'holiday' | 'balance';
+  entityId: string;
+  userId: string;
+  userName: string;
+  oldValue?: string;
+  newValue?: string;
+  description: string;
+  timestamp: string;
+}
+
+export interface EmployeeChangeHistory {
+  id: string;
+  employeeId: string;
+  changeType: 'role' | 'status' | 'department' | 'manager';
+  oldValue: string;
+  newValue: string;
+  changedBy: string;
+  changedByName: string;
+  timestamp: string;
 }
 
 export const LEAVE_TYPE_LABELS: Record<LeaveType, string> = {
@@ -105,3 +146,14 @@ export const STATUS_LABELS: Record<LeaveStatus, string> = {
   rejected: 'Rejected',
   cancelled: 'Cancelled',
 };
+
+export const DEPARTMENT_LIST = [
+  'Engineering',
+  'Design',
+  'Human Resources',
+  'Finance',
+  'Marketing',
+  'Sales',
+  'QA',
+  'Operations',
+] as const;
