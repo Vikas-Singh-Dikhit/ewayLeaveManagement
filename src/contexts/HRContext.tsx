@@ -3,56 +3,56 @@ import {
   Employee, 
   LeavePolicy, 
   Holiday, 
-  AuditLog, 
   LeaveAdjustment, 
-  EmployeeHistory,
+  AuditLog, 
+  EmployeeChangeHistory,
   UserRole,
-  LeaveType
+  LeaveType,
+  LeaveBalance
 } from '@/types/leave';
-import { 
-  mockEmployees, 
-  mockLeavePolicies, 
-  mockHolidays, 
-  mockAuditLogs,
-  mockLeaveAdjustments,
-  mockEmployeeHistory
-} from '@/data/mockData';
+import { mockEmployees, mockLeavePolicies, mockHolidays } from '@/data/mockData';
 
 interface HRContextType {
-  // Employee Management
   employees: Employee[];
-  addEmployee: (employee: Omit<Employee, 'id'>) => void;
-  updateEmployee: (id: string, updates: Partial<Employee>, reason?: string) => void;
-  deactivateEmployee: (id: string, reason?: string) => void;
-  activateEmployee: (id: string) => void;
-  getEmployeeHistory: (employeeId: string) => EmployeeHistory[];
-
-  // Leave Policy Management
   policies: LeavePolicy[];
-  updatePolicy: (id: string, updates: Partial<LeavePolicy>, reason?: string) => void;
-  addPolicy: (policy: Omit<LeavePolicy, 'id'>) => void;
-  deletePolicy: (id: string) => void;
-
-  // Holiday Management
   holidays: Holiday[];
-  addHoliday: (holiday: Omit<Holiday, 'id'>) => void;
-  updateHoliday: (id: string, updates: Partial<Holiday>) => void;
-  deleteHoliday: (id: string) => void;
-
-  // Leave Adjustments
   adjustments: LeaveAdjustment[];
-  adjustLeaveBalance: (employeeId: string, leaveType: LeaveType, days: number, reason: string, hrId: string, hrName: string) => void;
-  getAdjustmentsByEmployee: (employeeId: string) => LeaveAdjustment[];
-
-  // Audit Logs
   auditLogs: AuditLog[];
-  getAuditLogsByEntity: (entityId: string) => AuditLog[];
-  getAuditLogsByDateRange: (startDate: string, endDate: string) => AuditLog[];
-  logAction: (action: string, entityType: string, entityId: string, entityDetails: string, performedBy: string, performedByName: string, newValue?: Record<string, any>, oldValue?: Record<string, any>) => void;
-
-  // Reports
-  getEmployeeLeaveReport: (employeeId: string, startDate?: string, endDate?: string) => any;
-  getDepartmentLeaveReport: (department: string, startDate?: string, endDate?: string) => any;
+  employeeHistory: EmployeeChangeHistory[];
+  
+  // Employee Management
+  addEmployee: (employee: Omit<Employee, 'id' | 'leaveBalance'>) => void;
+  updateEmployee: (id: string, updates: Partial<Employee>, changedBy: string, changedByName: string) => void;
+  deactivateEmployee: (id: string, changedBy: string, changedByName: string) => void;
+  activateEmployee: (id: string, changedBy: string, changedByName: string) => void;
+  
+  // Policy Management
+  updatePolicy: (id: string, updates: Partial<LeavePolicy>, userId: string, userName: string) => void;
+  
+  // Holiday Management
+  addHoliday: (holiday: Omit<Holiday, 'id'>, userId: string, userName: string) => void;
+  updateHoliday: (id: string, updates: Partial<Holiday>, userId: string, userName: string) => void;
+  deleteHoliday: (id: string, userId: string, userName: string) => void;
+  
+  // Leave Adjustments
+  adjustLeaveBalance: (
+    employeeId: string,
+    employeeName: string,
+    leaveType: LeaveType,
+    adjustmentType: 'credit' | 'debit',
+    days: number,
+    reason: string,
+    adjustedBy: string,
+    adjustedByName: string
+  ) => void;
+  
+  // Audit
+  addAuditLog: (log: Omit<AuditLog, 'id' | 'timestamp'>) => void;
+  
+  // Helpers
+  getEmployeeById: (id: string) => Employee | undefined;
+  getEmployeeHistory: (employeeId: string) => EmployeeChangeHistory[];
+  getEmployeeAdjustments: (employeeId: string) => LeaveAdjustment[];
 }
 
 const HRContext = createContext<HRContextType | undefined>(undefined);
@@ -61,228 +61,265 @@ export const HRProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   const [employees, setEmployees] = useState<Employee[]>(mockEmployees);
   const [policies, setPolicies] = useState<LeavePolicy[]>(mockLeavePolicies);
   const [holidays, setHolidays] = useState<Holiday[]>(mockHolidays);
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>(mockAuditLogs);
-  const [adjustments, setAdjustments] = useState<LeaveAdjustment[]>(mockLeaveAdjustments);
-  const [employeeHistory, setEmployeeHistory] = useState<EmployeeHistory[]>(mockEmployeeHistory);
+  const [adjustments, setAdjustments] = useState<LeaveAdjustment[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [employeeHistory, setEmployeeHistory] = useState<EmployeeChangeHistory[]>([]);
 
-  // Employee Management
-  const addEmployee = useCallback((employee: Omit<Employee, 'id'>) => {
+  const addAuditLog = useCallback((log: Omit<AuditLog, 'id' | 'timestamp'>) => {
+    const newLog: AuditLog = {
+      ...log,
+      id: `audit-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+    };
+    setAuditLogs(prev => [newLog, ...prev]);
+  }, []);
+
+  const getDefaultLeaveBalance = (): LeaveBalance => ({
+    casual: 12,
+    sick: 12,
+    earned: 21,
+    wfh: 24,
+    comp_off: 0,
+  });
+
+  const addEmployee = useCallback((employee: Omit<Employee, 'id' | 'leaveBalance'>) => {
     const newEmployee: Employee = {
       ...employee,
       id: `emp-${Date.now()}`,
+      leaveBalance: getDefaultLeaveBalance(),
     };
     setEmployees(prev => [...prev, newEmployee]);
-    logAction('employee_add', 'employee', newEmployee.id, `New employee added: ${newEmployee.name}`, 'system', 'System', newEmployee);
-  }, []);
+    addAuditLog({
+      action: 'employee_update',
+      entityType: 'employee',
+      entityId: newEmployee.id,
+      userId: 'system',
+      userName: 'System',
+      newValue: JSON.stringify(newEmployee),
+      description: `New employee ${newEmployee.name} added to ${newEmployee.department}`,
+    });
+  }, [addAuditLog]);
 
-  const updateEmployee = useCallback((id: string, updates: Partial<Employee>, reason?: string) => {
-    const employee = employees.find(e => e.id === id);
+  const updateEmployee = useCallback((
+    id: string, 
+    updates: Partial<Employee>, 
+    changedBy: string, 
+    changedByName: string
+  ) => {
+    setEmployees(prev => prev.map(emp => {
+      if (emp.id !== id) return emp;
+      
+      // Track changes
+      Object.keys(updates).forEach(key => {
+        const typedKey = key as keyof Employee;
+        if (emp[typedKey] !== updates[typedKey] && ['role', 'status', 'department', 'managerId'].includes(key)) {
+          const history: EmployeeChangeHistory = {
+            id: `history-${Date.now()}-${key}`,
+            employeeId: id,
+            changeType: key as 'role' | 'status' | 'department' | 'manager',
+            oldValue: String(emp[typedKey] || ''),
+            newValue: String(updates[typedKey] || ''),
+            changedBy,
+            changedByName,
+            timestamp: new Date().toISOString(),
+          };
+          setEmployeeHistory(prev => [history, ...prev]);
+        }
+      });
+
+      return { ...emp, ...updates };
+    }));
+
+    addAuditLog({
+      action: 'employee_update',
+      entityType: 'employee',
+      entityId: id,
+      userId: changedBy,
+      userName: changedByName,
+      oldValue: 'Previous values',
+      newValue: JSON.stringify(updates),
+      description: `Employee record updated`,
+    });
+  }, [addAuditLog]);
+
+  const deactivateEmployee = useCallback((id: string, changedBy: string, changedByName: string) => {
+    updateEmployee(id, { status: 'inactive' }, changedBy, changedByName);
+  }, [updateEmployee]);
+
+  const activateEmployee = useCallback((id: string, changedBy: string, changedByName: string) => {
+    updateEmployee(id, { status: 'active' }, changedBy, changedByName);
+  }, [updateEmployee]);
+
+  const updatePolicy = useCallback((
+    id: string, 
+    updates: Partial<LeavePolicy>,
+    userId: string,
+    userName: string
+  ) => {
+    setPolicies(prev => prev.map(policy => {
+      if (policy.id !== id) return policy;
+      return { ...policy, ...updates };
+    }));
+
+    addAuditLog({
+      action: 'policy_update',
+      entityType: 'policy',
+      entityId: id,
+      userId,
+      userName,
+      newValue: JSON.stringify(updates),
+      description: `Leave policy updated`,
+    });
+  }, [addAuditLog]);
+
+  const addHoliday = useCallback((
+    holiday: Omit<Holiday, 'id'>,
+    userId: string,
+    userName: string
+  ) => {
+    const newHoliday: Holiday = {
+      ...holiday,
+      id: `h-${Date.now()}`,
+    };
+    setHolidays(prev => [...prev, newHoliday].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()));
+
+    addAuditLog({
+      action: 'holiday_update',
+      entityType: 'holiday',
+      entityId: newHoliday.id,
+      userId,
+      userName,
+      newValue: JSON.stringify(newHoliday),
+      description: `Holiday "${holiday.name}" added on ${holiday.date}`,
+    });
+  }, [addAuditLog]);
+
+  const updateHoliday = useCallback((
+    id: string,
+    updates: Partial<Holiday>,
+    userId: string,
+    userName: string
+  ) => {
+    setHolidays(prev => prev.map(h => h.id === id ? { ...h, ...updates } : h));
+
+    addAuditLog({
+      action: 'holiday_update',
+      entityType: 'holiday',
+      entityId: id,
+      userId,
+      userName,
+      newValue: JSON.stringify(updates),
+      description: `Holiday updated`,
+    });
+  }, [addAuditLog]);
+
+  const deleteHoliday = useCallback((id: string, userId: string, userName: string) => {
+    const holiday = holidays.find(h => h.id === id);
+    setHolidays(prev => prev.filter(h => h.id !== id));
+
+    addAuditLog({
+      action: 'holiday_update',
+      entityType: 'holiday',
+      entityId: id,
+      userId,
+      userName,
+      oldValue: JSON.stringify(holiday),
+      description: `Holiday "${holiday?.name}" deleted`,
+    });
+  }, [holidays, addAuditLog]);
+
+  const adjustLeaveBalance = useCallback((
+    employeeId: string,
+    employeeName: string,
+    leaveType: LeaveType,
+    adjustmentType: 'credit' | 'debit',
+    days: number,
+    reason: string,
+    adjustedBy: string,
+    adjustedByName: string
+  ) => {
+    const employee = employees.find(e => e.id === employeeId);
     if (!employee) return;
 
-    // Track history for role or status changes
-    if (updates.role && updates.role !== employee.role) {
-      const historyEntry: EmployeeHistory = {
-        id: `eh-${Date.now()}`,
-        employeeId: id,
-        fieldChanged: 'role',
-        oldValue: employee.role,
-        newValue: updates.role,
-        changedBy: 'system', // Should be passed from context
-        changedByName: 'System',
-        timestamp: new Date().toISOString(),
-        reason,
-      };
-      setEmployeeHistory(prev => [...prev, historyEntry]);
-    }
+    const previousBalance = employee.leaveBalance[leaveType];
+    const newBalance = adjustmentType === 'credit' 
+      ? previousBalance + days 
+      : Math.max(0, previousBalance - days);
 
-    if (updates.status && updates.status !== employee.status) {
-      const historyEntry: EmployeeHistory = {
-        id: `eh-${Date.now()}`,
-        employeeId: id,
-        fieldChanged: 'status',
-        oldValue: employee.status,
-        newValue: updates.status,
-        changedBy: 'system',
-        changedByName: 'System',
-        timestamp: new Date().toISOString(),
-        reason,
+    // Update employee balance
+    setEmployees(prev => prev.map(emp => {
+      if (emp.id !== employeeId) return emp;
+      return {
+        ...emp,
+        leaveBalance: {
+          ...emp.leaveBalance,
+          [leaveType]: newBalance,
+        },
       };
-      setEmployeeHistory(prev => [...prev, historyEntry]);
-    }
+    }));
 
-    setEmployees(prev => prev.map(e => (e.id === id ? { ...e, ...updates } : e)));
-    logAction('employee_change', 'employee', id, `Employee updated: ${employee.name}`, 'system', 'System', updates, employee);
+    // Record adjustment
+    const adjustment: LeaveAdjustment = {
+      id: `adj-${Date.now()}`,
+      employeeId,
+      employeeName,
+      leaveType,
+      adjustmentType,
+      days,
+      reason,
+      adjustedBy,
+      adjustedByName,
+      timestamp: new Date().toISOString(),
+      previousBalance,
+      newBalance,
+    };
+    setAdjustments(prev => [adjustment, ...prev]);
+
+    addAuditLog({
+      action: 'adjustment',
+      entityType: 'balance',
+      entityId: employeeId,
+      userId: adjustedBy,
+      userName: adjustedByName,
+      oldValue: String(previousBalance),
+      newValue: String(newBalance),
+      description: `${adjustmentType === 'credit' ? 'Credited' : 'Debited'} ${days} ${leaveType} leave days for ${employeeName}. Reason: ${reason}`,
+    });
+  }, [employees, addAuditLog]);
+
+  const getEmployeeById = useCallback((id: string) => {
+    return employees.find(e => e.id === id);
   }, [employees]);
-
-  const deactivateEmployee = useCallback((id: string, reason?: string) => {
-    updateEmployee(id, { status: 'inactive' }, reason);
-  }, [updateEmployee]);
-
-  const activateEmployee = useCallback((id: string) => {
-    updateEmployee(id, { status: 'active' });
-  }, [updateEmployee]);
 
   const getEmployeeHistory = useCallback((employeeId: string) => {
     return employeeHistory.filter(h => h.employeeId === employeeId);
   }, [employeeHistory]);
 
-  // Leave Policy Management
-  const updatePolicy = useCallback((id: string, updates: Partial<LeavePolicy>, reason?: string) => {
-    const policy = policies.find(p => p.id === id);
-    if (!policy) return;
-
-    setPolicies(prev => prev.map(p => (p.id === id ? { ...p, ...updates } : p)));
-    logAction('policy_change', 'policy', id, `Policy updated: ${policy.name}`, 'system', 'System', updates, policy);
-  }, [policies]);
-
-  const addPolicy = useCallback((policy: Omit<LeavePolicy, 'id'>) => {
-    const newPolicy: LeavePolicy = {
-      ...policy,
-      id: `p-${Date.now()}`,
-    };
-    setPolicies(prev => [...prev, newPolicy]);
-    logAction('policy_add', 'policy', newPolicy.id, `New policy added: ${newPolicy.name}`, 'system', 'System', newPolicy);
-  }, []);
-
-  const deletePolicy = useCallback((id: string) => {
-    const policy = policies.find(p => p.id === id);
-    if (!policy) return;
-
-    setPolicies(prev => prev.filter(p => p.id !== id));
-    logAction('policy_delete', 'policy', id, `Policy deleted: ${policy.name}`, 'system', 'System', {}, policy);
-  }, [policies]);
-
-  // Holiday Management
-  const addHoliday = useCallback((holiday: Omit<Holiday, 'id'>) => {
-    const newHoliday: Holiday = {
-      ...holiday,
-      id: `h-${Date.now()}`,
-    };
-    setHolidays(prev => [...prev, newHoliday]);
-    logAction('holiday_add', 'holiday', newHoliday.id, `Holiday added: ${newHoliday.name}`, 'system', 'System', newHoliday);
-  }, []);
-
-  const updateHoliday = useCallback((id: string, updates: Partial<Holiday>) => {
-    const holiday = holidays.find(h => h.id === id);
-    if (!holiday) return;
-
-    setHolidays(prev => prev.map(h => (h.id === id ? { ...h, ...updates } : h)));
-    logAction('holiday_change', 'holiday', id, `Holiday updated: ${updates.name || holiday.name}`, 'system', 'System', updates, holiday);
-  }, [holidays]);
-
-  const deleteHoliday = useCallback((id: string) => {
-    const holiday = holidays.find(h => h.id === id);
-    if (!holiday) return;
-
-    setHolidays(prev => prev.filter(h => h.id !== id));
-    logAction('holiday_delete', 'holiday', id, `Holiday deleted: ${holiday.name}`, 'system', 'System', {}, holiday);
-  }, [holidays]);
-
-  // Leave Adjustments
-  const adjustLeaveBalance = useCallback((employeeId: string, leaveType: LeaveType, days: number, reason: string, hrId: string, hrName: string) => {
-    const employee = employees.find(e => e.id === employeeId);
-    if (!employee) return;
-
-    const oldBalance = employee.leaveBalance[leaveType];
-    const newBalance = oldBalance + days;
-
-    // Update employee balance
-    const updatedBalance = { ...employee.leaveBalance, [leaveType]: newBalance };
-    setEmployees(prev => prev.map(e => (e.id === employeeId ? { ...e, leaveBalance: updatedBalance } : e)));
-
-    // Create adjustment record
-    const adjustment: LeaveAdjustment = {
-      id: `adj-${Date.now()}`,
-      employeeId,
-      employeeName: employee.name,
-      leaveType,
-      days,
-      reason,
-      adjustedBy: hrId,
-      adjustedByName: hrName,
-      timestamp: new Date().toISOString(),
-      oldBalance,
-      newBalance,
-    };
-    setAdjustments(prev => [...prev, adjustment]);
-
-    logAction('adjustment', 'adjustment', adjustment.id, `Leave adjustment: ${days > 0 ? '+' : ''}${days} ${leaveType}`, hrId, hrName, { days, reason, newBalance }, { oldBalance });
-  }, [employees]);
-
-  const getAdjustmentsByEmployee = useCallback((employeeId: string) => {
+  const getEmployeeAdjustments = useCallback((employeeId: string) => {
     return adjustments.filter(a => a.employeeId === employeeId);
   }, [adjustments]);
-
-  // Audit Logs
-  const logAction = useCallback((action: string, entityType: string, entityId: string, entityDetails: string, performedBy: string, performedByName: string, newValue?: Record<string, any>, oldValue?: Record<string, any>) => {
-    const log: AuditLog = {
-      id: `audit-${Date.now()}`,
-      action: action as any,
-      entityType: entityType as any,
-      entityId,
-      entityDetails,
-      performedBy,
-      performedByName,
-      timestamp: new Date().toISOString(),
-      newValue,
-      oldValue,
-    };
-    setAuditLogs(prev => [...prev, log]);
-  }, []);
-
-  const getAuditLogsByEntity = useCallback((entityId: string) => {
-    return auditLogs.filter(log => log.entityId === entityId);
-  }, [auditLogs]);
-
-  const getAuditLogsByDateRange = useCallback((startDate: string, endDate: string) => {
-    return auditLogs.filter(log => {
-      const logDate = log.timestamp.split('T')[0];
-      return logDate >= startDate && logDate <= endDate;
-    });
-  }, [auditLogs]);
-
-  // Reports
-  const getEmployeeLeaveReport = useCallback((employeeId: string, startDate?: string, endDate?: string) => {
-    // This would aggregate leave data for a specific employee
-    return {
-      employeeId,
-      report: 'Employee leave data',
-    };
-  }, []);
-
-  const getDepartmentLeaveReport = useCallback((department: string, startDate?: string, endDate?: string) => {
-    // This would aggregate leave data for a department
-    return {
-      department,
-      report: 'Department leave data',
-    };
-  }, []);
 
   return (
     <HRContext.Provider value={{
       employees,
+      policies,
+      holidays,
+      adjustments,
+      auditLogs,
+      employeeHistory,
       addEmployee,
       updateEmployee,
       deactivateEmployee,
       activateEmployee,
-      getEmployeeHistory,
-      policies,
       updatePolicy,
-      addPolicy,
-      deletePolicy,
-      holidays,
       addHoliday,
       updateHoliday,
       deleteHoliday,
-      adjustments,
       adjustLeaveBalance,
-      getAdjustmentsByEmployee,
-      auditLogs,
-      getAuditLogsByEntity,
-      getAuditLogsByDateRange,
-      logAction,
-      getEmployeeLeaveReport,
-      getDepartmentLeaveReport,
+      addAuditLog,
+      getEmployeeById,
+      getEmployeeHistory,
+      getEmployeeAdjustments,
     }}>
       {children}
     </HRContext.Provider>
@@ -292,7 +329,7 @@ export const HRProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 export const useHR = () => {
   const context = useContext(HRContext);
   if (!context) {
-    throw new Error('useHR must be used within an HRProvider');
+    throw new Error('useHR must be used within a HRProvider');
   }
   return context;
 };

@@ -1,227 +1,255 @@
 import React, { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useHR } from '@/contexts/HRContext';
+import { useLeave } from '@/contexts/LeaveContext';
 import { PageHeader } from '@/components/common/PageHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Button } from '@/components/ui/button';
-import { Shield, Eye } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Search, Shield, Clock, AlertCircle } from 'lucide-react';
+import { format } from 'date-fns';
 
 const AuditLogs: React.FC = () => {
   const { user } = useAuth();
-  const { auditLogs, getAuditLogsByDateRange } = useHR();
-  const [openDetails, setOpenDetails] = useState<string | null>(null);
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  const { auditLogs } = useHR();
+  const { leaveRequests } = useLeave();
+  
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterAction, setFilterAction] = useState<string>('all');
 
-  // Restrict access to HR/Admin only
   if (!user || user.role !== 'hr_admin') {
-    return (
-      <div className="text-center py-12">
-        <p className="text-red-600 font-semibold">Access Denied. Only HR Admins can view audit logs.</p>
-      </div>
-    );
+    return <div className="p-8 text-center text-muted-foreground">Access denied. HR Admin only.</div>;
   }
 
-  const filteredLogs = startDate && endDate 
-    ? getAuditLogsByDateRange(startDate, endDate)
-    : auditLogs;
+  // Combine audit logs from HR context with approval actions from leave requests
+  const approvalLogs = leaveRequests.flatMap(req => 
+    req.approvals
+      .filter(a => a.status !== 'pending' && a.timestamp)
+      .map(a => ({
+        id: `approval-${req.id}-${a.stage}`,
+        action: a.status === 'approved' ? 'approval' : 'rejection',
+        entityType: 'leave_request',
+        entityId: req.id,
+        userId: a.approverId,
+        userName: a.approverName,
+        oldValue: 'pending',
+        newValue: a.status,
+        description: `${a.status === 'approved' ? 'Approved' : 'Rejected'} ${req.employeeName}'s ${req.leaveType} leave (${req.daysCount} days)${a.comment ? `. Comment: ${a.comment}` : ''}`,
+        timestamp: a.timestamp!,
+      }))
+  );
 
-  const selectedLog = auditLogs.find(l => l.id === openDetails);
+  const allLogs = [...auditLogs, ...approvalLogs].sort(
+    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+  );
 
-  const actionColors: Record<string, string> = {
-    approve: 'bg-green-100 text-green-800',
-    reject: 'bg-red-100 text-red-800',
-    adjustment: 'bg-blue-100 text-blue-800',
-    employee_change: 'bg-purple-100 text-purple-800',
-    policy_change: 'bg-orange-100 text-orange-800',
-    holiday_change: 'bg-yellow-100 text-yellow-800',
-    leave_cancel: 'bg-red-100 text-red-800',
+  const filteredLogs = allLogs.filter(log => {
+    const matchesSearch = log.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          log.userName.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesAction = filterAction === 'all' || log.action === filterAction;
+    return matchesSearch && matchesAction;
+  });
+
+  const getActionBadge = (action: string) => {
+    switch (action) {
+      case 'approval':
+        return <Badge className="bg-green-100 text-green-700">Approved</Badge>;
+      case 'rejection':
+        return <Badge className="bg-red-100 text-red-700">Rejected</Badge>;
+      case 'adjustment':
+        return <Badge className="bg-blue-100 text-blue-700">Adjustment</Badge>;
+      case 'employee_update':
+        return <Badge className="bg-purple-100 text-purple-700">Employee</Badge>;
+      case 'policy_update':
+        return <Badge className="bg-orange-100 text-orange-700">Policy</Badge>;
+      case 'holiday_update':
+        return <Badge className="bg-cyan-100 text-cyan-700">Holiday</Badge>;
+      default:
+        return <Badge variant="outline">{action}</Badge>;
+    }
+  };
+
+  const getEntityIcon = (entityType: string) => {
+    switch (entityType) {
+      case 'leave_request':
+        return '📋';
+      case 'employee':
+        return '👤';
+      case 'policy':
+        return '📜';
+      case 'holiday':
+        return '📅';
+      case 'balance':
+        return '💰';
+      default:
+        return '📝';
+    }
   };
 
   return (
-    <div className="space-y-6">
-      <PageHeader title="Audit Logs" description="Read-only system audit trail (HR Admin)" />
+    <div className="animate-fade-in">
+      <PageHeader
+        title="Audit Logs"
+        description="Read-only view of all system actions and changes"
+      />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Filter Logs</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {/* Info Banner */}
+      <Card className="mb-6 border-primary/20 bg-primary/5">
+        <CardContent className="pt-6">
+          <div className="flex items-start gap-3">
+            <Shield className="h-5 w-5 text-primary mt-0.5" />
             <div>
-              <Label htmlFor="startDate">Start Date</Label>
-              <Input
-                id="startDate"
-                type="date"
-                value={startDate}
-                onChange={e => setStartDate(e.target.value)}
-              />
-            </div>
-            <div>
-              <Label htmlFor="endDate">End Date</Label>
-              <Input
-                id="endDate"
-                type="date"
-                value={endDate}
-                onChange={e => setEndDate(e.target.value)}
-              />
-            </div>
-            <div className="flex items-end">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setStartDate('');
-                  setEndDate('');
-                }}
-                className="w-full"
-              >
-                Clear Filter
-              </Button>
+              <p className="font-medium">Audit Trail</p>
+              <p className="text-sm text-muted-foreground">
+                This log captures all approval actions, leave balance changes, HR adjustments, and system configuration updates. 
+                Data is read-only and cannot be modified.
+              </p>
             </div>
           </div>
         </CardContent>
       </Card>
 
+      {/* Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-4">
+              <Clock className="h-8 w-8 text-muted-foreground" />
+              <div>
+                <p className="text-2xl font-bold">{allLogs.length}</p>
+                <p className="text-sm text-muted-foreground">Total Events</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-4">
+              <div className="p-2 bg-green-100 rounded-lg">
+                <span className="text-xl">✓</span>
+              </div>
+              <div>
+                <p className="text-2xl font-bold">{allLogs.filter(l => l.action === 'approval').length}</p>
+                <p className="text-sm text-muted-foreground">Approvals</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-4">
+              <div className="p-2 bg-red-100 rounded-lg">
+                <span className="text-xl">✗</span>
+              </div>
+              <div>
+                <p className="text-2xl font-bold">{allLogs.filter(l => l.action === 'rejection').length}</p>
+                <p className="text-sm text-muted-foreground">Rejections</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-4">
+              <div className="p-2 bg-blue-100 rounded-lg">
+                <span className="text-xl">⚡</span>
+              </div>
+              <div>
+                <p className="text-2xl font-bold">{allLogs.filter(l => l.action === 'adjustment').length}</p>
+                <p className="text-sm text-muted-foreground">Adjustments</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Filters */}
+      <Card className="mb-6">
+        <CardContent className="pt-6">
+          <div className="flex flex-col md:flex-row gap-4">
+            <div className="flex-1">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search by description or user..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+            </div>
+            <Select value={filterAction} onValueChange={setFilterAction}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Action Type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Actions</SelectItem>
+                <SelectItem value="approval">Approvals</SelectItem>
+                <SelectItem value="rejection">Rejections</SelectItem>
+                <SelectItem value="adjustment">Adjustments</SelectItem>
+                <SelectItem value="employee_update">Employee Updates</SelectItem>
+                <SelectItem value="policy_update">Policy Updates</SelectItem>
+                <SelectItem value="holiday_update">Holiday Updates</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Audit Log Table */}
       <Card>
         <CardHeader>
-          <CardTitle>All Audit Logs</CardTitle>
-          <p className="text-sm text-muted-foreground mt-2">
-            Showing {filteredLogs.length} entries
-          </p>
+          <CardTitle>Event Log ({filteredLogs.length} records)</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
+          {filteredLogs.length === 0 ? (
+            <div className="text-center py-12">
+              <AlertCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+              <p className="text-muted-foreground">No audit logs found</p>
+            </div>
+          ) : (
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Timestamp</TableHead>
+                  <TableHead>Type</TableHead>
                   <TableHead>Action</TableHead>
-                  <TableHead>Entity Type</TableHead>
-                  <TableHead>Details</TableHead>
-                  <TableHead>Performed By</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead>Description</TableHead>
+                  <TableHead>Changed By</TableHead>
+                  <TableHead>Old → New</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredLogs.length > 0 ? (
-                  filteredLogs
-                    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-                    .map(log => (
-                      <TableRow key={log.id}>
-                        <TableCell className="text-sm">{log.timestamp}</TableCell>
-                        <TableCell>
-                          <Badge className={actionColors[log.action] || 'bg-gray-100 text-gray-800'}>
-                            {log.action}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="capitalize text-sm">{log.entityType}</TableCell>
-                        <TableCell className="text-sm max-w-xs truncate">{log.entityDetails}</TableCell>
-                        <TableCell className="text-sm">{log.performedByName}</TableCell>
-                        <TableCell className="text-right">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setOpenDetails(log.id)}
-                          >
-                            <Eye className="w-4 h-4" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                ) : (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                      No logs found
+                {filteredLogs.map(log => (
+                  <TableRow key={log.id}>
+                    <TableCell className="whitespace-nowrap">
+                      {format(new Date(log.timestamp), 'MMM dd, yyyy HH:mm:ss')}
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-lg mr-2">{getEntityIcon(log.entityType)}</span>
+                      <span className="capitalize text-sm">{log.entityType.replace('_', ' ')}</span>
+                    </TableCell>
+                    <TableCell>{getActionBadge(log.action)}</TableCell>
+                    <TableCell className="max-w-md">
+                      <p className="truncate">{log.description}</p>
+                    </TableCell>
+                    <TableCell>{log.userName}</TableCell>
+                    <TableCell>
+                      {log.oldValue && log.newValue && (
+                        <span className="text-sm text-muted-foreground">
+                          {log.oldValue.length > 20 ? '...' : log.oldValue} → {log.newValue.length > 20 ? '...' : log.newValue}
+                        </span>
+                      )}
                     </TableCell>
                   </TableRow>
-                )}
+                ))}
               </TableBody>
             </Table>
-          </div>
+          )}
         </CardContent>
       </Card>
-
-      {/* Details Dialog */}
-      <Dialog open={!!openDetails} onOpenChange={() => setOpenDetails(null)}>
-        <DialogContent className="sm:max-w-[600px]">
-          <DialogHeader>
-            <DialogTitle>Audit Log Details</DialogTitle>
-            <DialogDescription>
-              Complete information about this audit log entry
-            </DialogDescription>
-          </DialogHeader>
-          {selectedLog && (
-            <div className="space-y-4 max-h-96 overflow-y-auto">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label className="text-muted-foreground">Log ID</Label>
-                  <p className="font-mono text-sm">{selectedLog.id}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Timestamp</Label>
-                  <p className="font-semibold">{selectedLog.timestamp}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Action</Label>
-                  <p className="font-semibold capitalize">{selectedLog.action}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Entity Type</Label>
-                  <p className="font-semibold capitalize">{selectedLog.entityType}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Entity ID</Label>
-                  <p className="font-mono text-sm">{selectedLog.entityId}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Performed By</Label>
-                  <p className="font-semibold">{selectedLog.performedByName} ({selectedLog.performedBy})</p>
-                </div>
-                <div className="col-span-2">
-                  <Label className="text-muted-foreground">Details</Label>
-                  <p className="font-semibold">{selectedLog.entityDetails}</p>
-                </div>
-              </div>
-
-              {selectedLog.oldValue && (
-                <div className="bg-red-50 p-3 rounded-lg">
-                  <Label className="text-muted-foreground font-semibold">Old Value</Label>
-                  <pre className="text-xs overflow-auto mt-2 bg-white p-2 rounded border">
-                    {JSON.stringify(selectedLog.oldValue, null, 2)}
-                  </pre>
-                </div>
-              )}
-
-              {selectedLog.newValue && (
-                <div className="bg-green-50 p-3 rounded-lg">
-                  <Label className="text-muted-foreground font-semibold">New Value</Label>
-                  <pre className="text-xs overflow-auto mt-2 bg-white p-2 rounded border">
-                    {JSON.stringify(selectedLog.newValue, null, 2)}
-                  </pre>
-                </div>
-              )}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 };
